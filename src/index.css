@@ -1,0 +1,271 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+  /* ── Dark Mode (default) ── */
+  :root,
+  .dark {
+    --background: 222 20% 7%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 16% 11%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 16% 11%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 14% 16%;
+    --secondary-foreground: 210 15% 80%;
+
+    --muted: 222 12% 16%;
+    --muted-foreground: 215 12% 48%;
+
+    --accent: 222 14% 18%;
+    --accent-foreground: 210 20% 92%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 44%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 222 10% 18%;
+    --input: 222 10% 18%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 222 22% 8%;
+    --sidebar-foreground: 215 12% 52%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 14% 14%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 222 10% 14%;
+    --sidebar-ring: 217 91% 60%;
+
+    --chart-1: 217 91% 60%;
+    --chart-2: 152 60% 44%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 0 72% 55%;
+
+    /* Theme-adaptive tokens */
+    --glass-bg-start: 222 16% 13%;
+    --glass-bg-end: 222 16% 10%;
+    --glass-border: 222 10% 20%;
+    --chart-grid: rgba(255, 255, 255, 0.04);
+    --chart-text: rgba(255, 255, 255, 0.35);
+    --tooltip-bg: rgba(22, 23, 27, 0.85);
+    --tooltip-border: rgba(255, 255, 255, 0.08);
+    --tooltip-text: rgba(255, 255, 255, 0.9);
+    --tooltip-muted: rgba(255, 255, 255, 0.5);
+    --cursor-color: rgba(255, 255, 255, 0.06);
+    --card-surface: #16171B;
+    --card-surface-alt: #1a1c24;
+    --scrollbar-thumb: hsl(222 10% 22%);
+    --scrollbar-thumb-hover: hsl(222 10% 30%);
+  }
+
+  /* ── Light Mode ── */
+  .light {
+    --background: 0 0% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 47% 25%;
+
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 14% 92%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 217 91% 55%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar stays dark in light mode (matching reference) */
+    --sidebar-background: 222 22% 8%;
+    --sidebar-foreground: 215 12% 52%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 14% 14%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 222 10% 14%;
+    --sidebar-ring: 217 91% 60%;
+
+    --chart-1: 217 91% 55%;
+    --chart-2: 152 60% 38%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 55%;
+    --chart-5: 0 72% 55%;
+
+    /* Theme-adaptive tokens */
+    --glass-bg-start: 0 0% 100%;
+    --glass-bg-end: 220 14% 98%;
+    --glass-border: 220 13% 88%;
+    --chart-grid: rgba(0, 0, 0, 0.06);
+    --chart-text: rgba(0, 0, 0, 0.45);
+    --tooltip-bg: rgba(255, 255, 255, 0.92);
+    --tooltip-border: rgba(0, 0, 0, 0.08);
+    --tooltip-text: rgba(0, 0, 0, 0.85);
+    --tooltip-muted: rgba(0, 0, 0, 0.45);
+    --cursor-color: rgba(0, 0, 0, 0.06);
+    --card-surface: #ffffff;
+    --card-surface-alt: #f8f9fb;
+    --scrollbar-thumb: hsl(220 13% 82%);
+    --scrollbar-thumb-hover: hsl(220 13% 72%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  code,
+  pre {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Premium scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 100px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+}
+
+@layer utilities {
+  .stat-number {
+    @apply text-2xl font-semibold tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .glass-card {
+    background: linear-gradient(135deg,
+        hsl(var(--glass-bg-start) / 0.8) 0%,
+        hsl(var(--glass-bg-end) / 0.6) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--glass-border) / 0.6);
+  }
+
+  .glass-card-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card-hover:hover {
+    border-color: hsl(var(--primary) / 0.3);
+    box-shadow: 0 0 30px -8px hsl(var(--primary) / 0.1);
+    transform: translateY(-1px);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(217 91% 70%) 0%, hsl(217 91% 50%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .glow-blue {
+    box-shadow: 0 0 40px -12px hsl(217 91% 60% / 0.4);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 40px -12px hsl(152 60% 44% / 0.4);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 40px -12px hsl(0 72% 55% / 0.4);
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 40px -12px hsl(38 92% 50% / 0.4);
+  }
+
+  .shine {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shine::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(45deg,
+        transparent 40%,
+        hsl(0 0% 100% / 0.03) 50%,
+        transparent 60%);
+    animation: shimmer 6s infinite linear;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%) translateY(-100%) rotate(45deg);
+    }
+
+    100% {
+      transform: translateX(100%) translateY(100%) rotate(45deg);
+    }
+  }
+}
