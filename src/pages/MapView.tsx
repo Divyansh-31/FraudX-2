@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MapPin, Radio, ShieldAlert, Wifi, WifiOff, Zap, X, Gauge } from "lucide-react";
+import { MapPin, Radio, ShieldAlert, Wifi, WifiOff, Zap, X, Gauge, Activity, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -32,6 +32,18 @@ interface FraudAlert {
   lat: number;
   lon: number;
   riskScore: number;
+  timestamp: number;
+}
+
+interface ActivityItem {
+  id: string;
+  deviceId: string;
+  lat: number;
+  lon: number;
+  speed: number | null;
+  fraudTypes: string[] | null;
+  riskScore: number;
+  isFraud: boolean;
   timestamp: number;
 }
 
@@ -98,14 +110,134 @@ const MapView = () => {
   const [connected, setConnected] = useState(false);
   const [devices, setDevices] = useState<Record<string, DeviceData>>({});
   const [alerts, setAlerts] = useState<FraudAlert[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [fraudAlertsList, setFraudAlertsList] = useState<FraudAlert[]>([]);
   const [totalPings, setTotalPings] = useState(0);
   const [fraudCount, setFraudCount] = useState(0);
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lon: number } | null>(null);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+
+  /* ---- Process a location update (shared by socket + initial load) ---- */
+  const processLocationUpdate = useCallback((data: any) => {
+    const hasFraud = data.fraudTypes && data.fraudTypes.length > 0;
+
+    setDevices((prev) => ({
+      ...prev,
+      [data.deviceId]: {
+        deviceId: data.deviceId,
+        lat: data.lat,
+        lon: data.lon,
+        speed: data.speed ?? null,
+        hasFraud: prev[data.deviceId]?.hasFraud || hasFraud,
+        fraudTypes: data.fraudTypes ?? prev[data.deviceId]?.fraudTypes ?? null,
+        riskScore: data.fraudTypes
+          ? calculateRiskScore(data.fraudTypes)
+          : (prev[data.deviceId]?.riskScore ?? 0),
+        lastUpdate: Date.now(),
+      },
+    }));
+
+    // Add to activity feed
+    const activityItem: ActivityItem = {
+      id: `${data.deviceId}-${data.timestamp}-${Math.random()}`,
+      deviceId: data.deviceId,
+      lat: data.lat,
+      lon: data.lon,
+      speed: data.speed ?? null,
+      fraudTypes: data.fraudTypes ?? null,
+      riskScore: data.riskScore ?? 0,
+      isFraud: hasFraud,
+      timestamp: data.timestamp || Date.now(),
+    };
+
+    setActivities((prev) => [activityItem, ...prev].slice(0, 50));
+
+    return hasFraud;
+  }, []);
+
+  /* ---- Process a fraud alert ---- */
+  const processFraudAlert = useCallback((data: any) => {
+    const alert: FraudAlert = {
+      id: `${data.deviceId}-${Date.now()}-${Math.random()}`,
+      deviceId: data.deviceId,
+      fraudTypes: data.fraudTypes,
+      speed: data.speed ?? null,
+      lat: data.lat,
+      lon: data.lon,
+      riskScore: calculateRiskScore(data.fraudTypes),
+      timestamp: data.timestamp || Date.now(),
+    };
+
+    // Toast alerts (auto-dismiss)
+    setAlerts((prev) => [alert, ...prev].slice(0, 8));
+
+    // Persistent fraud alerts list
+    setFraudAlertsList((prev) => [alert, ...prev].slice(0, 20));
+
+    // Mark device as fraud
+    setDevices((prev) => {
+      if (!prev[data.deviceId]) return prev;
+      return {
+        ...prev,
+        [data.deviceId]: {
+          ...prev[data.deviceId],
+          hasFraud: true,
+          fraudTypes: data.fraudTypes,
+          riskScore: calculateRiskScore(data.fraudTypes),
+        },
+      };
+    });
+  }, []);
+
+  /* ---- Load initial data from API ---- */
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const response = await fetch("/api/location/logs");
+        const logs = await response.json();
+
+        // Reverse to process oldest first (API returns newest-first)
+        const sorted = [...logs].reverse();
+        let pings = 0;
+        let frauds = 0;
+
+        sorted.forEach((log: any) => {
+          const fraudTypes = log.fraudFlag
+            ? log.fraudFlag.split(", ").filter((f: string) => f !== "DeliveryPoint")
+            : null;
+
+          const hasFraud = fraudTypes && fraudTypes.length > 0;
+          pings++;
+          if (hasFraud) frauds++;
+
+          processLocationUpdate({
+            deviceId: log.deviceId,
+            lat: log.lat,
+            lon: log.lon,
+            fraudTypes: hasFraud ? fraudTypes : null,
+            riskScore: log.riskScore,
+            speed: log.speed ?? null,
+            timestamp: log.timestamp,
+          });
+        });
+
+        setTotalPings(pings);
+        setFraudCount(frauds);
+        setInitialLoaded(true);
+      } catch (error) {
+        console.error("Error loading initial data:", error);
+        setInitialLoaded(true);
+      }
+    }
+
+    loadInitialData();
+  }, [processLocationUpdate]);
 
   /* ---- Socket.IO ---- */
   useEffect(() => {
-    const socket = io(window.location.origin, {
+    const BACKEND_URL = "http://localhost:3002";
+    const socket = io(BACKEND_URL, {
       transports: ["websocket", "polling"],
     });
     socketRef.current = socket;
@@ -115,61 +247,22 @@ const MapView = () => {
 
     socket.on("location_update", (data: any) => {
       setTotalPings((p) => p + 1);
-
-      setDevices((prev) => ({
-        ...prev,
-        [data.deviceId]: {
-          deviceId: data.deviceId,
-          lat: data.lat,
-          lon: data.lon,
-          speed: data.speed ?? null,
-          hasFraud:
-            prev[data.deviceId]?.hasFraud || (data.fraudTypes ? true : false),
-          fraudTypes: data.fraudTypes ?? prev[data.deviceId]?.fraudTypes ?? null,
-          riskScore: data.fraudTypes
-            ? calculateRiskScore(data.fraudTypes)
-            : (prev[data.deviceId]?.riskScore ?? 0),
-          lastUpdate: Date.now(),
-        },
-      }));
+      const hasFraud = processLocationUpdate(data);
+      if (hasFraud) {
+        setFraudCount((c) => c + 1);
+      }
     });
 
     socket.on("fraud_alert", (data: any) => {
-      setFraudCount((c) => c + 1);
-
-      const alert: FraudAlert = {
-        id: `${data.deviceId}-${Date.now()}`,
-        deviceId: data.deviceId,
-        fraudTypes: data.fraudTypes,
-        speed: data.speed,
-        lat: data.lat,
-        lon: data.lon,
-        riskScore: calculateRiskScore(data.fraudTypes),
-        timestamp: Date.now(),
-      };
-      setAlerts((prev) => [alert, ...prev].slice(0, 8));
-
-      // Mark device as fraud
-      setDevices((prev) => {
-        if (!prev[data.deviceId]) return prev;
-        return {
-          ...prev,
-          [data.deviceId]: {
-            ...prev[data.deviceId],
-            hasFraud: true,
-            fraudTypes: data.fraudTypes,
-            riskScore: calculateRiskScore(data.fraudTypes),
-          },
-        };
-      });
+      processFraudAlert(data);
     });
 
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [processLocationUpdate, processFraudAlert]);
 
-  /* ---- Auto-dismiss alerts after 10s ---- */
+  /* ---- Auto-dismiss toast alerts after 10s ---- */
   useEffect(() => {
     if (alerts.length === 0) return;
     const timer = setTimeout(() => {
@@ -271,8 +364,8 @@ const MapView = () => {
               style={{ height: "100%", minHeight: 460, background: "#0d1117" }}
             >
               <TileLayer
-                attribution='&copy; <a href="https://carto.com">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
               />
 
               {flyTarget && (
@@ -389,12 +482,14 @@ const MapView = () => {
                   <div>
                     <p className="text-sm font-medium text-foreground">
                       {connected
-                        ? "Waiting for device pings…"
+                        ? initialLoaded
+                          ? "Waiting for device pings…"
+                          : "Loading historical data…"
                         : "Connecting to FraudX server…"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {connected
-                        ? "Start the simulator to see live markers"
+                        ? "Start the simulator or send pings from Catalyst"
                         : "Ensure the backend is running on port 3000"}
                     </p>
                   </div>
@@ -469,6 +564,125 @@ const MapView = () => {
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Activity Feed + Fraud Alerts Panel */}
+        <motion.div
+          variants={item}
+          className="grid grid-cols-1 lg:grid-cols-12 gap-4"
+        >
+          {/* Recent Activity */}
+          <div className="lg:col-span-8 glass-card rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              Recent Activity
+              <span className="ml-auto text-[10px] font-mono text-muted-foreground">
+                {activities.length} pings
+              </span>
+            </h3>
+
+            <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
+              {activities.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-3xl mb-3 opacity-50">📡</div>
+                  <p className="text-xs text-muted-foreground">
+                    Waiting for location pings...
+                  </p>
+                </div>
+              ) : (
+                activities.map((a) => (
+                  <div
+                    key={a.id}
+                    className={cn(
+                      "rounded-xl p-3 border-l-[3px] transition-all hover:translate-x-1",
+                      a.isFraud
+                        ? "bg-destructive/5 border-l-destructive"
+                        : "bg-secondary/20 border-l-success"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-foreground">
+                        {a.deviceId}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(a.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span>📍 {a.lat.toFixed(4)}, {a.lon.toFixed(4)}</span>
+                      {a.speed !== null && (
+                        <span>🚗 {a.speed.toFixed(1)} km/h</span>
+                      )}
+                      {a.riskScore > 0 && (
+                        <span>🎯 Risk: {a.riskScore}%</span>
+                      )}
+                      {a.fraudTypes && a.fraudTypes.map((f) => (
+                        <span
+                          key={f}
+                          className="inline-block px-2 py-0.5 bg-destructive/15 border border-destructive/30 rounded text-[10px] text-destructive font-medium"
+                        >
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Fraud Alerts Panel */}
+          <div className="lg:col-span-4 glass-card rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Fraud Alerts
+              <span className="ml-auto text-[10px] font-mono text-destructive">
+                {fraudAlertsList.length}
+              </span>
+            </h3>
+
+            <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
+              {fraudAlertsList.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-3xl mb-3 opacity-50">✅</div>
+                  <p className="text-xs text-muted-foreground">
+                    No fraud detected
+                  </p>
+                </div>
+              ) : (
+                fraudAlertsList.map((a) => (
+                  <motion.div
+                    key={a.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="rounded-xl p-3 bg-destructive/5 border border-destructive/20"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm">⚠️</span>
+                      <span className="text-xs font-bold text-destructive">
+                        {a.fraudTypes.join(", ")}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground space-y-0.5">
+                      <p>
+                        <strong className="text-foreground">{a.deviceId}</strong>
+                      </p>
+                      <p>📍 {a.lat.toFixed(4)}, {a.lon.toFixed(4)}</p>
+                      {a.speed !== null && (
+                        <p>🚗 Speed: {a.speed.toFixed(1)} km/h</p>
+                      )}
+                      <p>🕐 {new Date(a.timestamp).toLocaleString()}</p>
+                      <div className="mt-1.5">
+                        <span className="inline-block px-2 py-0.5 bg-destructive/15 rounded text-destructive text-[10px] font-bold">
+                          Risk Score: {a.riskScore}%
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
+              )}
             </div>
           </div>
         </motion.div>

@@ -81,7 +81,7 @@ app.use((err, req, res, next) => {
 });
 
 // ----- start server -----
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 
 server.listen(PORT, () => {
     console.log(`🚀 FraudX Server running on port ${PORT}`);
