@@ -5,6 +5,7 @@ import { RiskBadge } from "@/components/RiskBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatINR } from "@/lib/formatINR";
 import { inboundRequests } from "@/lib/mockData";
+import { FRAUD_WEIGHTS } from "@/lib/riskScoreEngine";
 
 type RequestType = typeof inboundRequests[0];
 
@@ -34,7 +35,7 @@ export function ReviewModal({ request, onClose, onAction }: ReviewModalProps) {
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="relative glass-card rounded-2xl border border-border/60 shadow-2xl w-[480px] max-h-[80vh] overflow-y-auto z-10"
+                className="relative bg-card rounded-2xl border border-border/60 shadow-2xl w-[480px] max-h-[80vh] overflow-y-auto z-10"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-border/30">
@@ -85,16 +86,28 @@ export function ReviewModal({ request, onClose, onAction }: ReviewModalProps) {
 
                     {request.fraudSignals && request.fraudSignals.length > 0 && (
                         <div className="border-t border-border/30 pt-4">
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Fraud Signals</p>
-                            <div className="flex flex-wrap gap-1.5">
-                                {request.fraudSignals.map((signal: string) => (
-                                    <span
-                                        key={signal}
-                                        className="text-[10px] font-medium px-2 py-1 rounded-md bg-destructive/10 text-destructive"
-                                    >
-                                        {signal}
-                                    </span>
-                                ))}
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Risk Assessment Breakdown</p>
+                            <div className="space-y-2">
+                                {request.fraudSignals.map((signal: string) => {
+                                    const weight = FRAUD_WEIGHTS[signal] || 0;
+                                    return (
+                                        <div key={signal} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                                            <div className="flex items-center gap-2">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
+                                                <span className="text-xs font-medium text-foreground">{signal}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="h-1 w-16 bg-white/10 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-destructive"
+                                                        style={{ width: `${Math.min(100, (weight / 50) * 100)}%` }}
+                                                    />
+                                                </div>
+                                                <span className="text-xs font-bold text-destructive">+{weight} pts</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

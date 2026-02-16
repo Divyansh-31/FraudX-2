@@ -223,7 +223,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 </button>
 
                 {notifOpen && (
-                  <div className="absolute right-0 top-12 w-[360px] glass-card rounded-xl border border-border/60 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="absolute right-0 top-12 w-[360px] bg-card rounded-xl border border-border/60 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
                       <h4 className="text-xs font-semibold text-foreground">Notifications</h4>
                       {unreadCount > 0 && (

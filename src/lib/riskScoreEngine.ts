@@ -13,12 +13,12 @@ export const FRAUD_WEIGHTS: Record<string, number> = {
     RegionFraud: 20,
 
     // ML / Image analysis
-    "AI-Generated": 35,
+    "AI-Generated": 100, // Critical fraud
     Tampered: 30,
     Suspicious: 15,
 
     // Behavioral / transactional
-    HighRefundFrequency: 25,
+    HighReturnRate: 80, // New signal for >30-40% returns
     UnauthorizedPurchase: 20,
     HighAmount: 10,
     RepeatOffender: 15,
@@ -87,6 +87,7 @@ export function deriveInboundSignals(opts: {
     amount: number;
     flaggedCount?: number;
     status?: string;
+    returnRate?: number; // 0.0 to 1.0
 }): string[] {
     const signals: string[] = [];
 
@@ -100,9 +101,6 @@ export function deriveInboundSignals(opts: {
     if (reason.includes("not received")) {
         signals.push("GeoMismatch");
     }
-    if (reason.includes("duplicate charge") || reason.includes("charged after")) {
-        signals.push("HighRefundFrequency");
-    }
 
     if (opts.amount > 50000) {
         signals.push("HighAmount");
@@ -110,6 +108,10 @@ export function deriveInboundSignals(opts: {
 
     if (opts.flaggedCount && opts.flaggedCount > 3) {
         signals.push("RepeatOffender");
+    }
+
+    if (opts.returnRate && opts.returnRate > 0.35) {
+        signals.push("HighReturnRate");
     }
 
     if (opts.status === "Flagged") {
