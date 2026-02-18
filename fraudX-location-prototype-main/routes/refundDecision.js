@@ -4,7 +4,7 @@ const router = express.Router();
 // POST /api/refund-decision
 // When admin approves/blocks a refund, broadcast to Catalyst site via Socket.IO
 router.post('/refund-decision', async (req, res) => {
-    const { deviceId, requestId, action } = req.body;
+    const { deviceId, requestId, mongoId, action } = req.body;
 
     if (!deviceId || !requestId || !action) {
         return res.status(400).json({
@@ -22,52 +22,54 @@ router.post('/refund-decision', async (req, res) => {
 
     const message = action === 'approved' ? 'Refund Approved' : 'Refund Rejected';
 
-    // Fetch device data to get the amount
     let amount = 0;
     try {
         const StaleDevice = require('../models/staleDevice');
-        const device = await StaleDevice.findOne({ deviceId });
 
-        if (!device) {
-            return res.status(404).json({
-                ok: false,
-                error: 'Device not found'
-            });
+        // Use mongoId for precise single-record update if available
+        if (mongoId) {
+            const device = await StaleDevice.findById(mongoId);
+            if (!device) {
+                console.log(`❌ No device found with _id: ${mongoId}`);
+                return res.status(404).json({ ok: false, error: 'Device not found' });
+            }
+            amount = device.amount || 0;
+            device.status = action;
+            await device.save();
+            console.log(`💾 Updated single record: _id=${mongoId} → ${action} (₹${amount})`);
+        } else {
+            // Fallback: update by deviceId (for backwards compatibility)
+            const device = await StaleDevice.findOne({ deviceId });
+            if (!device) {
+                return res.status(404).json({ ok: false, error: 'Device not found' });
+            }
+            amount = device.amount || 0;
+            await StaleDevice.updateOne({ _id: device._id }, { $set: { status: action } });
+            console.log(`💾 Updated by deviceId fallback: ${deviceId} → ${action} (₹${amount})`);
         }
-
-        amount = device.amount || 0;
-
-        // Update database to persist the decision
-        await StaleDevice.updateOne(
-            { deviceId },
-            { $set: { status: action } }
-        );
-        console.log(`💾 Database updated: ${deviceId} status set to ${action}, amount: ₹${amount}`);
     } catch (err) {
         console.error('Failed to update database:', err);
-        return res.status(500).json({
-            ok: false,
-            error: 'Database error'
-        });
+        return res.status(500).json({ ok: false, error: 'Database error' });
     }
 
-    // Emit Socket.IO event to all connected clients (including Catalyst site)
+    // Emit Socket.IO event to all connected clients
     const io = req.app.get('io');
     io.emit('refund_decision', {
         deviceId,
         requestId,
+        mongoId,
         action,
         message,
-        amount,           // NOW INCLUDES AMOUNT!
+        amount,
         timestamp: Date.now()
     });
 
-    console.log(`📢 Refund decision broadcasted: ${message} for ${deviceId} (₹${amount})`);
+    console.log(`📢 Refund decision: ${message} for ${deviceId} (₹${amount})`);
 
     res.json({
         ok: true,
         message: 'Decision broadcasted successfully',
-        data: { deviceId, requestId, action, message, amount }
+        data: { deviceId, requestId, mongoId, action, message, amount }
     });
 });
 

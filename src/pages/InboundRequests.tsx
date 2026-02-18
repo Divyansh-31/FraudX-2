@@ -20,6 +20,7 @@ const item = {
 
 interface InboundEntry {
   id: string;
+  _mongoId: string;
   deviceId: string;
   lat: number;
   lon: number;
@@ -28,7 +29,7 @@ interface InboundEntry {
   speed: number | null;
   lastSeen: number;
   detectedAt: number;
-  status: "Pending";
+  status: string;
   _isStale: true;
 }
 
@@ -36,6 +37,7 @@ interface InboundEntry {
 function toInboundEntry(data: any, index: number): InboundEntry {
   return {
     id: `REQ-${String(index + 1).padStart(3, "0")}`,
+    _mongoId: data._id || data._mongoId || "",
     deviceId: data.deviceId,
     lat: data.lat,
     lon: data.lon,
@@ -44,36 +46,27 @@ function toInboundEntry(data: any, index: number): InboundEntry {
     speed: data.speed ?? null,
     lastSeen: data.lastSeen,
     detectedAt: data.detectedAt,
-    status: "Pending",
+    status: data.status || "Pending",
     _isStale: true,
   };
 }
 
 const InboundRequests = () => {
   const [reviewRequest, setReviewRequest] = useState<InboundEntry | null>(null);
-  const [actionStatuses, setActionStatuses] = useState<Record<string, string>>({});
   const [requests, setRequests] = useState<InboundEntry[]>([]);
   const countRef = useRef(0);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     // Load existing entries from MongoDB
-    fetch("/api/location/stale-devices")
+    fetch("http://localhost:3002/api/location/stale-devices")
       .then((r) => r.json())
       .then((data: any[]) => {
         if (Array.isArray(data) && data.length > 0) {
           const entries = data.map((s, i) => toInboundEntry(s, i));
           countRef.current = data.length;
           setRequests(entries);
-
-          // Load existing statuses from database
-          const statuses: Record<string, string> = {};
-          data.forEach((s, i) => {
-            if (s.status && s.status !== "Pending") {
-              statuses[`REQ-${String(i + 1).padStart(3, "0")}`] = s.status;
-            }
-          });
-          setActionStatuses(statuses);
+          console.log("📋 Loaded entries:", entries.map(e => `${e.deviceId}=${e.status}`));
         }
       })
       .catch((err) => console.error("Failed to load inbound requests:", err));
@@ -89,27 +82,16 @@ const InboundRequests = () => {
       setRequests((prev) => [entry, ...prev]);
     });
 
-    // Listen for refund decisions to update status
+    // Listen for refund decisions to update status in real-time
     socket.on("refund_decision", (data: any) => {
       console.log("📥 Refund decision received:", data);
-      // Find the request and update its status
       setRequests((prev) =>
-        prev.map((req) => {
-          if (req.deviceId === data.deviceId) {
-            return { ...req, status: data.action };
-          }
-          return req;
-        })
+        prev.map((req) =>
+          req._mongoId === data.mongoId
+            ? { ...req, status: data.action }
+            : req
+        )
       );
-      // Also update actionStatuses
-      setActionStatuses((prev) => {
-        // Find the id for this deviceId
-        const req = requests.find((r) => r.deviceId === data.deviceId);
-        if (req) {
-          return { ...prev, [req.id]: data.action };
-        }
-        return prev;
-      });
     });
 
     return () => {
@@ -118,13 +100,22 @@ const InboundRequests = () => {
   }, []);
 
   const sorted = [...requests].sort((a, b) => b.riskScore - a.riskScore);
-  const pending = requests.filter((r) => !actionStatuses[r.id]).length;
-  const reviewed = requests.filter((r) => !!actionStatuses[r.id]).length;
+  const pending = requests.filter((r) => r.status === "Pending").length;
+  const reviewed = requests.filter((r) => r.status !== "Pending").length;
 
   const handleAction = async (id: string, action: string, deviceId: string) => {
-    setActionStatuses((prev) => ({ ...prev, [id]: action }));
+    // Find the specific entry to get its MongoDB _id
+    const targetEntry = requests.find((r) => r.id === id);
+    const mongoId = targetEntry?._mongoId || "";
 
-    // Broadcast decision to Catalyst site via backend
+    // Immediately update ONLY this specific entry in local state
+    setRequests((prev) =>
+      prev.map((req) =>
+        req.id === id ? { ...req, status: action } : req
+      )
+    );
+
+    // Broadcast decision to backend with mongoId for precise DB update
     try {
       const response = await fetch("http://localhost:3002/api/refund-decision", {
         method: "POST",
@@ -132,6 +123,7 @@ const InboundRequests = () => {
         body: JSON.stringify({
           deviceId,
           requestId: id,
+          mongoId,
           action,
         }),
       });
@@ -267,14 +259,14 @@ const InboundRequests = () => {
                           </span>
                         </td>
                         <td className="px-3 py-3">
-                          {actionStatuses[req.id] ? (
+                          {req.status !== "Pending" ? (
                             <span className={cn(
                               "text-[10px] font-semibold px-2 py-1 rounded-md uppercase",
-                              actionStatuses[req.id] === "approved"
+                              req.status === "approved"
                                 ? "bg-success/10 text-success"
                                 : "bg-destructive/10 text-destructive"
                             )}>
-                              {actionStatuses[req.id]}
+                              {req.status}
                             </span>
                           ) : (
                             <StatusBadge status={req.status} />
