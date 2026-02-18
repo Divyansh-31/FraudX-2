@@ -1,4 +1,3 @@
-
 const cors = require('cors');
 require('dotenv').config();
 
@@ -33,6 +32,48 @@ app.set('views', path.join(__dirname, 'views'));
 // hacky but useful: make io accessible inside routes
 app.set('io', io);
 
+// ----- stale-device tracking -----
+// Shared maps so routes can update activeDevices on each ping
+const activeDevices = new Map();   // deviceId → { lat, lon, riskScore, fraudTypes, speed, lastPing }
+const StaleDevice = require('./models/staleDevice');
+
+app.set('activeDevices', activeDevices);
+
+const STALE_TIMEOUT_MS = 30_000;   // 30 seconds without a ping → stale
+const STALE_CHECK_INTERVAL = 15_000; // check every 15 seconds
+
+setInterval(async () => {
+    const now = Date.now();
+    for (const [deviceId, info] of activeDevices.entries()) {
+        if (now - info.lastPing > STALE_TIMEOUT_MS) {
+            const staleEntry = {
+                deviceId,
+                lat: info.lat,
+                lon: info.lon,
+                riskScore: info.riskScore || 0,
+                fraudTypes: info.fraudTypes || [],
+                speed: info.speed ?? null,
+                lastSeen: info.lastPing,
+                detectedAt: now,
+                amount: info.amount || 0,           // Refund amount
+                orderId: info.orderId || "",        // Order ID
+            };
+
+            // Persist to MongoDB
+            try {
+                await StaleDevice.create(staleEntry);
+            } catch (err) {
+                console.error('Failed to save stale device:', err);
+            }
+
+            activeDevices.delete(deviceId);
+
+            io.emit('device_stale', staleEntry);
+            console.log(`⏰ Device went stale: ${deviceId} (last ping ${Math.round((now - info.lastPing) / 1000)}s ago)`);
+        }
+    }
+}, STALE_CHECK_INTERVAL);
+
 // ----- database connection -----
 const mongoUri =
     process.env.MONGODB_URI ||
@@ -64,6 +105,7 @@ io.on('connection', (socket) => {
 
 // ----- routes -----
 app.use('/api/location', require('./routes/location'));
+app.use('/api', require('./routes/refundDecision'));
 
 app.use('/', require('./routes/dashboard')); // default landing
 

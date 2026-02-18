@@ -7,12 +7,12 @@ import { formatINR } from "@/lib/formatINR";
 import { inboundRequests } from "@/lib/mockData";
 import { FRAUD_WEIGHTS } from "@/lib/riskScoreEngine";
 
-type RequestType = typeof inboundRequests[0];
+type RequestType = (typeof inboundRequests)[0] & Record<string, any>;
 
 interface ReviewModalProps {
     request: RequestType;
     onClose: () => void;
-    onAction: (id: string, action: string) => void;
+    onAction: (id: string, action: string, deviceId: string) => void;
 }
 
 export function ReviewModal({ request, onClose, onAction }: ReviewModalProps) {
@@ -55,21 +55,41 @@ export function ReviewModal({ request, onClose, onAction }: ReviewModalProps) {
 
                 {/* Body */}
                 <div className="px-6 py-4 space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        {[
-                            { label: "Source", value: new URL(request.sourceWebsiteUrl).hostname },
-                            { label: "Order", value: request.orderId },
-                            { label: "Amount", value: formatINR(request.amount) },
-                            { label: "Reason", value: request.refundReason },
-                            { label: "Customer", value: request.customerName },
-                            { label: "Email", value: request.customerEmail },
-                        ].map((field) => (
-                            <div key={field.label}>
-                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">{field.label}</p>
-                                <p className="text-xs font-medium text-foreground truncate">{field.value}</p>
-                            </div>
-                        ))}
-                    </div>
+                    {(request as any)._isStale ? (
+                        /* Device session details */
+                        <div className="grid grid-cols-2 gap-3">
+                            {[
+                                { label: "Device ID", value: (request as any).deviceId || (request as any).orderId },
+                                { label: "Last Coordinates", value: `${(request as any)._lat?.toFixed(6) ?? (request as any).lat?.toFixed(6) ?? "N/A"}, ${(request as any)._lon?.toFixed(6) ?? (request as any).lon?.toFixed(6) ?? "N/A"}` },
+                                { label: "Last Speed", value: (request as any)._speed != null ? `${(request as any)._speed.toFixed(1)} km/h` : (request as any).speed != null ? `${(request as any).speed.toFixed(1)} km/h` : "N/A" },
+                                { label: "Last Seen", value: ((request as any)._lastSeen || (request as any).lastSeen) ? new Date((request as any)._lastSeen || (request as any).lastSeen).toLocaleString() : "Unknown" },
+                                { label: "Detected At", value: ((request as any)._detectedAt || (request as any).detectedAt) ? new Date((request as any)._detectedAt || (request as any).detectedAt).toLocaleString() : "Unknown" },
+                                { label: "Fraud Signals", value: request.fraudSignals?.length > 0 ? request.fraudSignals.join(", ") : (request as any).fraudTypes?.length > 0 ? (request as any).fraudTypes.join(", ") : "None" },
+                            ].map((field) => (
+                                <div key={field.label}>
+                                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">{field.label}</p>
+                                    <p className="text-xs font-medium text-foreground truncate">{field.value}</p>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        /* Normal request info */
+                        <div className="grid grid-cols-2 gap-3">
+                            {[
+                                { label: "Source", value: new URL(request.sourceWebsiteUrl).hostname },
+                                { label: "Order", value: request.orderId },
+                                { label: "Amount", value: formatINR(request.amount) },
+                                { label: "Reason", value: request.refundReason },
+                                { label: "Customer", value: request.customerName },
+                                { label: "Email", value: request.customerEmail },
+                            ].map((field) => (
+                                <div key={field.label}>
+                                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">{field.label}</p>
+                                    <p className="text-xs font-medium text-foreground truncate">{field.value}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="border-t border-border/30 pt-4">
                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Risk Assessment</p>
@@ -121,14 +141,14 @@ export function ReviewModal({ request, onClose, onAction }: ReviewModalProps) {
                 {/* Actions */}
                 <div className="flex items-center gap-2 px-6 py-4 border-t border-border/30">
                     <button
-                        onClick={() => { onAction(request.id, "approved"); onClose(); }}
+                        onClick={() => { onAction(request.id, "approved", (request as any).deviceId || request.orderId); onClose(); }}
                         className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-success text-white text-xs font-medium hover:bg-success/90 transition-colors"
                     >
                         <CheckCircle className="h-3.5 w-3.5" />
                         Approve Refund
                     </button>
                     <button
-                        onClick={() => { onAction(request.id, "blocked"); onClose(); }}
+                        onClick={() => { onAction(request.id, "blocked", (request as any).deviceId || request.orderId); onClose(); }}
                         className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-destructive text-white text-xs font-medium hover:bg-destructive/90 transition-colors"
                     >
                         <Ban className="h-3.5 w-3.5" />

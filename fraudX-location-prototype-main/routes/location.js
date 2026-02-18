@@ -17,7 +17,9 @@ router.post("/ping", async (req, res) => {
     deviceId,
     userCoords,
     deliveryCoords,
-    timestamp
+    timestamp,
+    amount = 0,        // Refund amount in ₹ (from Catalyst)
+    orderId = ""       // Order ID (from Catalyst)
   } = req.body;
 
   if (!deviceId) {
@@ -105,8 +107,25 @@ router.post("/ping", async (req, res) => {
     lon: userCoords.lon,
     timestamp,
     fraudFlag: fraudTypes.length > 0 ? fraudTypes.join(", ") : null,
-    riskScore
+    riskScore,
+    amount,      // Store refund amount
+    orderId      // Store order ID
   });
+
+  // Update active-device tracking for stale detection
+  const activeDevices = req.app.get('activeDevices');
+  if (activeDevices) {
+    activeDevices.set(deviceId, {
+      lat: userCoords.lat,
+      lon: userCoords.lon,
+      riskScore,
+      fraudTypes: fraudTypes.length > 0 ? fraudTypes : null,
+      speed,
+      lastPing: Date.now(),
+      amount,      // Store for stale device record
+      orderId      // Store for stale device record
+    });
+  }
 
   console.log("Fraud Types:", fraudTypes);
   console.log("Risk Score:", riskScore);
@@ -132,7 +151,9 @@ router.post("/ping", async (req, res) => {
       speed,
       lat: userCoords.lat,
       lon: userCoords.lon,
-      timestamp
+      timestamp,
+      amount,      // Refund amount - so dashboard knows ₹ value
+      orderId      // Order ID - for tracking
     });
   }
 
@@ -149,6 +170,44 @@ router.post("/ping", async (req, res) => {
 router.get("/logs", async (req, res) => {
   const logs = await LocationLog.find().sort({ timestamp: -1 }).limit(100);
   res.json(logs);
+});
+
+// GET /api/location/stats - Dashboard stats (initial load)
+router.get("/stats", async (req, res) => {
+  const StaleDevice = require('../models/staleDevice');
+
+  // Get all location logs
+  const logs = await LocationLog.find();
+
+  // Get all stale devices (fraud attempts)
+  const staleDevices = await StaleDevice.find();
+
+  // Total Transactions = all pings received
+  const totalTransactions = logs.length;
+
+  // Flagged Transactions = logs with fraud detected
+  const flaggedTransactions = logs.filter(l => l.fraudFlag).length;
+
+  // Blocked Amount = sum of amounts from blocked devices
+  const blockedDevices = staleDevices.filter(d => d.status === 'blocked');
+  const blockedAmount = blockedDevices.reduce((sum, d) => sum + (d.amount || 0), 0);
+
+  // Average Risk Score = average of all fraudulent pings
+  const fraudLogs = logs.filter(l => l.riskScore > 0);
+  const avgRiskScore = fraudLogs.length > 0
+    ? fraudLogs.reduce((sum, l) => sum + l.riskScore, 0) / fraudLogs.length
+    : 0;
+
+  // Active Alerts = devices awaiting review (status = "Pending")
+  const activeAlerts = staleDevices.filter(d => d.status === 'Pending').length;
+
+  res.json({
+    totalTransactions,
+    flaggedTransactions,
+    blockedAmount,
+    avgRiskScore,
+    activeAlerts
+  });
 });
 
 // POST /api/location/set-delivery
@@ -223,6 +282,18 @@ router.get("/delivery/:deviceId", async (req, res) => {
     fraudFlag: "DeliveryPoint"
   });
   res.json(log);
+});
+
+// GET /api/location/stale-devices
+router.get("/stale-devices", async (req, res) => {
+  try {
+    const StaleDevice = require('../models/staleDevice');
+    const staleDevices = await StaleDevice.find().sort({ detectedAt: -1 }).limit(100);
+    res.json(staleDevices);
+  } catch (err) {
+    console.error('Error fetching stale devices:', err);
+    res.json([]);
+  }
 });
 
 module.exports = router;

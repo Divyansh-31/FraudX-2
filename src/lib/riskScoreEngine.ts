@@ -8,9 +8,9 @@
 // ── Fraud signal weights ───────────────────────────────────────────
 export const FRAUD_WEIGHTS: Record<string, number> = {
     // Location-based
-    GeoMismatch: 30,
-    ImpossibleJump: 40,
-    RegionFraud: 20,
+    GeoMismatch: 60,
+    ImpossibleJump: 80,
+    RegionFraud: 50,
 
     // ML / Image analysis
     "AI-Generated": 100, // Critical fraud
