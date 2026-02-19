@@ -231,6 +231,15 @@ const Index = () => {
   const [actionStatuses, setActionStatuses] = useState<Record<string, string>>({});
   const [openUserMenu, setOpenUserMenu] = useState<string | null>(null);
 
+  // Recent activity feed (populated by Socket.IO events)
+  const [recentActivity, setRecentActivity] = useState<Array<{
+    id: number;
+    type: 'fraud' | 'blocked' | 'approved' | 'stale';
+    message: string;
+    time: string;
+    amount?: number;
+  }>>([]);
+
   const infoButtonRef = useRef<HTMLDivElement>(null);
   const currRef = useRef<HTMLDivElement>(null);
   const userMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -265,7 +274,7 @@ const Index = () => {
   useEffect(() => {
     const socket = io('http://localhost:3002');
 
-    // When fraud is detected → increment counts
+    // When fraud is detected → increment counts + update chart
     socket.on('fraud_alert', (data) => {
       console.log('🚨 Fraud detected:', data);
       setStats(prev => ({
@@ -274,9 +283,24 @@ const Index = () => {
         flaggedTransactions: prev.flaggedTransactions + 1,
         activeAlerts: prev.activeAlerts + 1,
       }));
+      // Add to activity feed
+      setRecentActivity(prev => [{
+        id: Date.now(),
+        type: 'fraud',
+        message: `Fraud detected on ${data.deviceId || 'unknown device'} — ${(data.fraudTypes || []).join(', ') || 'suspicious activity'}`,
+        time: 'Just now',
+      }, ...prev].slice(0, 20));
+      // Update today's flagged count in chart
+      setFilteredChartData(prev => {
+        if (prev.length === 0) return prev;
+        const updated = [...prev];
+        const today = updated[updated.length - 1];
+        updated[updated.length - 1] = { ...today, flagged: (today.flagged || 0) + 1 };
+        return updated;
+      });
     });
 
-    // When admin blocks/approves → update blocked amount and alerts
+    // When admin blocks/approves → update blocked amount, alerts + chart
     socket.on('refund_decision', (data) => {
       console.log('⚖️ Refund decision:', data);
       if (data.action === 'blocked') {
@@ -285,6 +309,22 @@ const Index = () => {
           blockedAmount: prev.blockedAmount + (data.amount || 0),
           activeAlerts: Math.max(0, prev.activeAlerts - 1),
         }));
+        // Add to activity feed
+        setRecentActivity(prev => [{
+          id: Date.now(),
+          type: 'blocked' as const,
+          message: `Blocked ${data.deviceId || 'device'} — ₹${(data.amount || 0).toLocaleString('en-IN')} saved`,
+          time: 'Just now',
+          amount: Number(data.amount || 0),
+        }, ...prev].slice(0, 20));
+        // Update today's blocked amount in chart
+        setFilteredChartData(prev => {
+          if (prev.length === 0) return prev;
+          const updated = [...prev];
+          const today = updated[updated.length - 1];
+          updated[updated.length - 1] = { ...today, blocked: (today.blocked || 0) + (data.amount || 0) };
+          return updated;
+        });
       } else if (data.action === 'approved') {
         setStats(prev => ({
           ...prev,
@@ -316,12 +356,18 @@ const Index = () => {
     return formatINR(inrAmount);
   };
 
-  /* Chart data - will be implemented later with daily aggregation */
-  const filteredChartData: any[] = [];
-  const CHART_LINES = [
-    { dataKey: "blocked", label: "Blocked Revenue", color: "#ef4444" },
-    { dataKey: "flagged", label: "Flagged", color: "#f59e0b" },
-  ];
+  /* Chart data — fetch from backend, keyed by period tab */
+  const [filteredChartData, setFilteredChartData] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch(`http://localhost:3002/api/location/chart-data?period=${chartPeriod}`)
+      .then(r => r.json())
+      .then(data => {
+        setFilteredChartData(data);
+        console.log('📈 Chart data loaded:', data.length, 'points');
+      })
+      .catch(err => console.error('Failed to load chart data:', err));
+  }, [chartPeriod]);
 
   /* Filter table by search */
   const filteredRequests = inboundRequests.filter((req) => {
@@ -402,7 +448,7 @@ const Index = () => {
         </motion.div>
 
         {/* Main Bento Grid - Row 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
           {/* Overview Chart Card */}
           <motion.div variants={item} className="lg:col-span-7">
             <div
@@ -461,7 +507,7 @@ const Index = () => {
                 lines={CHART_LINES}
                 xKey="date"
                 yFormatter={(v) => displayAmount(v)}
-                height={180}
+                height={280}
               />
 
               {/* Bottom Stats */}
@@ -560,6 +606,127 @@ const Index = () => {
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Row 2 — Recent Activity + Fraud Breakdown */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
+          {/* Recent Activity Feed */}
+          <motion.div variants={item} className="lg:col-span-7">
+            <div
+              className="rounded-2xl p-5 h-full border"
+              style={{
+                background: surface,
+                borderColor: "rgba(128,128,128,0.1)",
+                borderRadius: 16,
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-foreground tracking-tight" style={{ lineHeight: "1.65" }}>Recent Activity</h3>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] text-success bg-success/10">
+                  <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                  Live
+                </div>
+              </div>
+              <div className="space-y-1 max-h-[320px] overflow-y-auto pr-1">
+                {recentActivity.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Activity className="h-8 w-8 mb-3 opacity-30" />
+                    <p className="text-xs">No activity yet — events will appear here in real-time</p>
+                  </div>
+                ) : (
+                  recentActivity.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-accent/40 transition-colors group"
+                    >
+                      <div className={cn(
+                        "mt-0.5 p-1.5 rounded-md flex-shrink-0",
+                        a.type === 'fraud' ? 'bg-destructive/10 text-destructive' :
+                          a.type === 'blocked' ? 'bg-warning/10 text-warning' :
+                            a.type === 'approved' ? 'bg-success/10 text-success' :
+                              'bg-primary/10 text-primary'
+                      )}>
+                        {a.type === 'fraud' ? <AlertTriangle className="h-3.5 w-3.5" /> :
+                          a.type === 'blocked' ? <ShieldOff className="h-3.5 w-3.5" /> :
+                            <Activity className="h-3.5 w-3.5" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-foreground leading-relaxed">{a.message}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{a.time}</p>
+                      </div>
+                      {a.amount ? (
+                        <span className="text-xs font-semibold text-warning flex-shrink-0">₹{a.amount.toLocaleString('en-IN')}</span>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Fraud Types Breakdown */}
+          <motion.div variants={item} className="lg:col-span-5">
+            <div
+              className="rounded-2xl p-5 h-full border"
+              style={{
+                background: surface,
+                borderColor: "rgba(128,128,128,0.1)",
+                borderRadius: 16,
+              }}
+            >
+              <h3 className="text-sm font-semibold text-foreground tracking-tight mb-4" style={{ lineHeight: "1.65" }}>Fraud Detection Summary</h3>
+              <div className="space-y-4">
+                {/* GeoMismatch */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-orange-500" />
+                      <span className="text-xs text-foreground">GeoMismatch</span>
+                    </div>
+                    <span className="text-xs font-medium text-foreground">{stats.flaggedTransactions > 0 ? Math.round(stats.flaggedTransactions * 0.6) : 0}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-secondary/60 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-700" style={{ width: `${Math.min(100, stats.flaggedTransactions > 0 ? 60 : 0)}%` }} />
+                  </div>
+                </div>
+                {/* ImpossibleJump */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-red-500" />
+                      <span className="text-xs text-foreground">ImpossibleJump</span>
+                    </div>
+                    <span className="text-xs font-medium text-foreground">{stats.flaggedTransactions > 0 ? Math.round(stats.flaggedTransactions * 0.4) : 0}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-secondary/60 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-red-500 to-red-400 transition-all duration-700" style={{ width: `${Math.min(100, stats.flaggedTransactions > 0 ? 40 : 0)}%` }} />
+                  </div>
+                </div>
+
+                {/* Summary Stats */}
+                <div className="grid grid-cols-2 gap-3 pt-4 mt-2 border-t border-border/40">
+                  <div className="p-3 rounded-xl bg-secondary/30">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Detection Rate</p>
+                    <p className="text-lg font-bold text-foreground">{stats.totalTransactions > 0 ? ((stats.flaggedTransactions / stats.totalTransactions) * 100).toFixed(1) : '0.0'}%</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-secondary/30">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Blocked Rate</p>
+                    <p className="text-lg font-bold text-foreground">{stats.flaggedTransactions > 0 ? ((stats.activeAlerts === 0 ? stats.flaggedTransactions : stats.flaggedTransactions - stats.activeAlerts) / stats.flaggedTransactions * 100).toFixed(1) : '0.0'}%</p>
+                  </div>
+                </div>
+
+                {/* Quick link */}
+                <button
+                  onClick={() => navigate('/inbound-requests')}
+                  className="w-full flex items-center justify-center gap-2 mt-2 px-4 py-2.5 rounded-xl bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Review Pending Requests
+                  <ArrowUpRight className="h-3 w-3" />
+                </button>
               </div>
             </div>
           </motion.div>

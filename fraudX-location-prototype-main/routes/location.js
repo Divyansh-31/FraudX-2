@@ -36,10 +36,10 @@ router.post("/ping", async (req, res) => {
   let riskScore = 0;   // 0–100 additive scale
   let speed = null;
 
-  // Fraud signal weights (must match frontend riskScoreEngine.ts)
+  // Fraud signal weights (synced with frontend riskScoreEngine.ts)
   const FRAUD_WEIGHTS = {
-    GeoMismatch: 30,
-    ImpossibleJump: 40,
+    GeoMismatch: 60,
+    ImpossibleJump: 80,
   };
 
   const lastPing = await getLastPing(deviceId);
@@ -292,6 +292,61 @@ router.get("/stale-devices", async (req, res) => {
     res.json(staleDevices);
   } catch (err) {
     console.error('Error fetching stale devices:', err);
+    res.json([]);
+  }
+});
+
+// GET /api/location/chart-data — daily aggregated data for dashboard chart
+router.get("/chart-data", async (req, res) => {
+  try {
+    const StaleDevice = require('../models/staleDevice');
+    const period = req.query.period || 'Month'; // '24h', 'Week', 'Month'
+
+    // Determine cutoff date
+    const now = new Date();
+    let cutoff = new Date();
+    if (period === '24h') {
+      cutoff.setHours(cutoff.getHours() - 24);
+    } else if (period === 'Week') {
+      cutoff.setDate(cutoff.getDate() - 7);
+    } else {
+      cutoff.setDate(cutoff.getDate() - 30);
+    }
+
+    const devices = await StaleDevice.find({
+      detectedAt: { $gte: cutoff.getTime() }
+    }).sort({ detectedAt: 1 });
+
+    // Group by day
+    const dailyMap = {};
+    devices.forEach(d => {
+      const day = new Date(d.detectedAt).toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'short'
+      });
+      if (!dailyMap[day]) {
+        dailyMap[day] = { date: day, blocked: 0, flagged: 0 };
+      }
+      if (d.status === 'blocked') {
+        dailyMap[day].blocked += (d.amount || 0);
+      }
+      if (d.riskScore > 0) {
+        dailyMap[day].flagged += 1;
+      }
+    });
+
+    // Fill missing days so chart looks continuous
+    const result = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    const totalDays = period === '24h' ? 1 : period === 'Week' ? 7 : 30;
+    for (let i = totalDays - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * dayMs);
+      const label = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+      result.push(dailyMap[label] || { date: label, blocked: 0, flagged: 0 });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching chart data:', err);
     res.json([]);
   }
 });
