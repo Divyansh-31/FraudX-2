@@ -65,9 +65,6 @@ Make sure you have [Node.js](https://nodejs.org/) installed on your machine.
 ## 🤝 Contributing
 Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/Divyansh-31/FraudX-2/issues) if you want to contribute.
 
-## 📜 License
-This project is licensed under the MIT License.
-
 ---
 <div align="center">
   <i>Built with ❤️ for secure e-commerce.</i>
